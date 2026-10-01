@@ -1,1 +1,1 @@
-.task-list .task:not(:last-child){border-bottom:1px solid #e7e1d9}.dark .task-list .task:not(:last-child){border-color:#3e3c38}
+.task-list .task{border-bottom:1px solid #d9d2c8;padding-bottom:8px;margin-bottom:3px}.dark .task-list .task{border-color:#504d48}

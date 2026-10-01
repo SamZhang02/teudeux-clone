@@ -4,3 +4,7 @@ import type { Task } from './types.js'
 export function taskForDatabase(task: Task): Omit<Task, 'is_completed'> & { is_completed: number } {
   return { ...task, is_completed: task.is_completed ? 1 : 0 }
 }
+
+export function taskFromDatabase(task: Omit<Task, 'is_completed'> & { is_completed: number }): Task {
+  return { ...task, is_completed: Boolean(task.is_completed) }
+}

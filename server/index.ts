@@ -6,7 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Task } from '../shared/types.js'
 import { nextRecurringDate } from '../shared/scheduling.js'
-import { taskForDatabase } from '../shared/database.js'
+import { taskForDatabase, taskFromDatabase } from '../shared/database.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const db = new Database(path.join(__dirname, '../teudeux.db'))
@@ -32,7 +32,11 @@ function seed() {
 }
 seed()
 const app = express(); app.use(cors()); app.use(express.json())
-app.get('/api/bootstrap', (_req, res) => { rollover(); res.json({ tasks: db.prepare('SELECT * FROM tasks ORDER BY sort_order').all(), lists: db.prepare('SELECT * FROM custom_lists ORDER BY sort_order').all() }) })
+app.get('/api/bootstrap', (_req, res) => {
+  rollover()
+  const tasks = (db.prepare('SELECT * FROM tasks ORDER BY sort_order').all() as Array<Omit<Task, 'is_completed'> & { is_completed: number }>).map(taskFromDatabase)
+  res.json({ tasks, lists: db.prepare('SELECT * FROM custom_lists ORDER BY sort_order').all() })
+})
 app.post('/api/tasks', (req, res) => {
   const task: Task = { id: randomUUID(), text: req.body.text ?? '', date: req.body.date ?? null, list_id: req.body.list_id ?? null, sort_order: req.body.sort_order ?? 0, is_completed: false, recurring_rule: req.body.recurring_rule ?? null }
   db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (@id,@text,@is_completed,@date,@list_id,@sort_order,@recurring_rule)').run(taskForDatabase(task))

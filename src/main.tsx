@@ -19,10 +19,9 @@ function TaskCard({ task, onToggle, onDelete, onEdit }: { task: Task; onToggle: 
   const [editing, setEditing] = useState(false); const [text, setText] = useState(task.text); const [rule, setRule] = useState<Rule>(task.recurring_rule)
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.25 : 1 }
   const commit = () => { setEditing(false); if (text.trim()) onEdit(task, text.trim(), rule); else onDelete(task.id) }
-  return <div ref={setNodeRef} style={style} className={`task ${task.is_completed ? 'done' : ''}`} {...attributes}>
+  return <div ref={setNodeRef} style={style} className={`task ${task.is_completed ? 'done' : ''}`} {...attributes} {...listeners}>
     <button className="check" onClick={() => onToggle(task)} aria-label="Complete task">{task.is_completed && '✓'}</button>
     {editing ? <div className="edit-wrap"><input autoFocus value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')commit(); if(e.key==='Escape')setEditing(false)}} onBlur={commit}/><select value={rule ?? ''} onChange={e=>setRule((e.target.value || null) as Rule)}><option value="">does not repeat</option><option value="daily">daily</option><option value="weekdays">weekdays</option><option value="weekly">weekly</option><option value="biweekly">every 2 weeks</option><option value="monthly">monthly</option><option value="yearly">yearly</option></select></div> : <button className="task-text" onDoubleClick={()=>setEditing(true)} onClick={()=>setEditing(true)}>{markup(task.text)} {task.recurring_rule && <span className="repeat">↻</span>}</button>}
-    <button className="grab" {...listeners} aria-label="Drag task">⠿</button>
   </div>
 }
 

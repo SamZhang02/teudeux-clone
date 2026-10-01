@@ -1,0 +1,1 @@
+.focus-view .week-grid{grid-template-columns:minmax(300px,550px)!important;width:min(100%,550px);max-width:550px;margin-inline:auto;background:transparent!important;border:0!important}.focus-view .column.is-today{width:100%}

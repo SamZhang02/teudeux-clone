@@ -17,12 +17,13 @@ db.exec(`CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
 ); CREATE TABLE IF NOT EXISTS recurring_tasks (
   id TEXT PRIMARY KEY, text TEXT NOT NULL, start_date TEXT NOT NULL,
-  recurring_rule TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
+  end_date TEXT, recurring_rule TEXT NOT NULL, sort_order INTEGER NOT NULL DEFAULT 0
 ); CREATE TABLE IF NOT EXISTS recurring_completions (
   recurring_task_id TEXT NOT NULL, date TEXT NOT NULL, completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (recurring_task_id, date),
   FOREIGN KEY(recurring_task_id) REFERENCES recurring_tasks(id) ON DELETE CASCADE
 );`)
+if (!(db.prepare("PRAGMA table_info(recurring_tasks)").all() as Array<{ name: string }>).some(column => column.name === 'end_date')) db.exec('ALTER TABLE recurring_tasks ADD COLUMN end_date TEXT')
 
 const today = () => new Date().toLocaleDateString('en-CA')
 function rollover() { db.prepare('UPDATE tasks SET date = ? WHERE is_completed = 0 AND date IS NOT NULL AND date < ?').run(today(), today()) }
@@ -86,6 +87,18 @@ app.patch('/api/recurring/:id', (req,res) => {
   const text = req.body.text ?? existing.text
   const recurringRule = req.body.recurring_rule ?? existing.recurring_rule
   db.prepare('UPDATE recurring_tasks SET text=?, recurring_rule=? WHERE id=?').run(text, recurringRule, req.params.id)
+  res.sendStatus(204)
+})
+app.post('/api/recurring/:id/disable', (req,res) => {
+  const template = db.prepare('SELECT * FROM recurring_tasks WHERE id=?').get(req.params.id) as RecurringTask | undefined
+  const { date, is_completed, text } = req.body as { date?: string; is_completed?: boolean; text?: string }
+  if (!template || !date) return res.sendStatus(404)
+  const disable = db.transaction(() => {
+    db.prepare('UPDATE recurring_tasks SET end_date=? WHERE id=?').run(date, template.id)
+    db.prepare('DELETE FROM recurring_completions WHERE recurring_task_id=? AND date>=?').run(template.id, date)
+    db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (?,?,?,?,?,?,NULL)').run(randomUUID(), text ?? template.text, is_completed ? 1 : 0, date, null, template.sort_order)
+  })
+  disable()
   res.sendStatus(204)
 })
 app.post('/api/recurring/:id/completions', (req,res) => { const { date, is_completed } = req.body; if (is_completed) db.prepare('INSERT OR IGNORE INTO recurring_completions (recurring_task_id,date) VALUES (?,?)').run(req.params.id, date); else db.prepare('DELETE FROM recurring_completions WHERE recurring_task_id=? AND date=?').run(req.params.id, date); res.sendStatus(204) })

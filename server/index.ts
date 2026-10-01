@@ -22,6 +22,10 @@ db.exec(`CREATE TABLE IF NOT EXISTS tasks (
   recurring_task_id TEXT NOT NULL, date TEXT NOT NULL, completed_at TEXT DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (recurring_task_id, date),
   FOREIGN KEY(recurring_task_id) REFERENCES recurring_tasks(id) ON DELETE CASCADE
+); CREATE TABLE IF NOT EXISTS recurring_skips (
+  recurring_task_id TEXT NOT NULL, date TEXT NOT NULL,
+  PRIMARY KEY (recurring_task_id, date),
+  FOREIGN KEY(recurring_task_id) REFERENCES recurring_tasks(id) ON DELETE CASCADE
 );`)
 if (!(db.prepare("PRAGMA table_info(recurring_tasks)").all() as Array<{ name: string }>).some(column => column.name === 'end_date')) db.exec('ALTER TABLE recurring_tasks ADD COLUMN end_date TEXT')
 
@@ -57,7 +61,7 @@ const app = express(); app.use(cors()); app.use(express.json())
 app.get('/api/bootstrap', (_req, res) => {
   rollover()
   const tasks = (db.prepare('SELECT * FROM tasks ORDER BY sort_order').all() as Array<Omit<Task, 'is_completed'> & { is_completed: number }>).map(taskFromDatabase)
-  res.json({ tasks, lists: db.prepare('SELECT * FROM custom_lists ORDER BY sort_order').all(), recurringTasks: db.prepare('SELECT * FROM recurring_tasks ORDER BY sort_order').all(), recurringCompletions: db.prepare('SELECT recurring_task_id,date FROM recurring_completions').all() })
+  res.json({ tasks, lists: db.prepare('SELECT * FROM custom_lists ORDER BY sort_order').all(), recurringTasks: db.prepare('SELECT * FROM recurring_tasks ORDER BY sort_order').all(), recurringCompletions: db.prepare('SELECT recurring_task_id,date FROM recurring_completions').all(), recurringSkips: db.prepare('SELECT recurring_task_id,date FROM recurring_skips').all() })
 })
 app.post('/api/tasks', (req, res) => {
   const task: Task = { id: randomUUID(), text: req.body.text ?? '', date: req.body.date ?? null, list_id: req.body.list_id ?? null, sort_order: req.body.sort_order ?? 0, is_completed: false, recurring_rule: req.body.recurring_rule ?? null }
@@ -96,12 +100,14 @@ app.post('/api/recurring/:id/disable', (req,res) => {
   const disable = db.transaction(() => {
     db.prepare('UPDATE recurring_tasks SET end_date=? WHERE id=?').run(date, template.id)
     db.prepare('DELETE FROM recurring_completions WHERE recurring_task_id=? AND date>=?').run(template.id, date)
+    db.prepare('DELETE FROM recurring_skips WHERE recurring_task_id=? AND date>=?').run(template.id, date)
     db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (?,?,?,?,?,?,NULL)').run(randomUUID(), text ?? template.text, is_completed ? 1 : 0, date, null, template.sort_order)
   })
   disable()
   res.sendStatus(204)
 })
 app.post('/api/recurring/:id/completions', (req,res) => { const { date, is_completed } = req.body; if (is_completed) db.prepare('INSERT OR IGNORE INTO recurring_completions (recurring_task_id,date) VALUES (?,?)').run(req.params.id, date); else db.prepare('DELETE FROM recurring_completions WHERE recurring_task_id=? AND date=?').run(req.params.id, date); res.sendStatus(204) })
+app.post('/api/recurring/:id/skips', (req,res) => { db.prepare('INSERT OR IGNORE INTO recurring_skips (recurring_task_id,date) VALUES (?,?)').run(req.params.id, req.body.date); res.sendStatus(204) })
 app.delete('/api/tasks/:id', (req,res) => { db.prepare('DELETE FROM tasks WHERE id=?').run(req.params.id); res.sendStatus(204) })
 app.put('/api/tasks/reorder', (req,res) => { const update = db.prepare('UPDATE tasks SET sort_order=@sort_order,date=@date,list_id=@list_id WHERE id=@id'); const tx = db.transaction((items: Task[]) => items.forEach(item => update.run(item))); tx(req.body); res.sendStatus(204) })
 app.post('/api/lists', (req,res) => { const list={id:randomUUID(),title:req.body.title || 'NEW LIST',sort_order:req.body.sort_order || 0}; db.prepare('INSERT INTO custom_lists (id,title,sort_order) VALUES (@id,@title,@sort_order)').run(list); res.status(201).json(list) })

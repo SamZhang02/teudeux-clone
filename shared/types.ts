@@ -3,3 +3,4 @@ export interface Task { id: string; text: string; is_completed: boolean; date: s
 export interface List { id: string; title: string; sort_order: number }
 export interface RecurringTask { id: string; text: string; start_date: string; end_date?: string | null; recurring_rule: Exclude<Rule, null>; sort_order: number }
 export interface RecurringCompletion { recurring_task_id: string; date: string }
+export interface RecurringSkip { recurring_task_id: string; date: string }

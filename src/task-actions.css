@@ -1,0 +1,1 @@
+.delete-task{border:0;background:transparent;color:#aaa39a;font-size:18px;line-height:16px;padding:0 1px;opacity:0}.task:hover .delete-task,.task:focus-within .delete-task{opacity:1}.delete-task:hover{color:var(--accent)}@media(max-width:760px){.delete-task{opacity:1}}

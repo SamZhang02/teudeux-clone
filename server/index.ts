@@ -58,4 +58,9 @@ app.delete('/api/tasks/:id', (req,res) => { db.prepare('DELETE FROM tasks WHERE 
 app.put('/api/tasks/reorder', (req,res) => { const update = db.prepare('UPDATE tasks SET sort_order=@sort_order,date=@date,list_id=@list_id WHERE id=@id'); const tx = db.transaction((items: Task[]) => items.forEach(item => update.run(item))); tx(req.body); res.sendStatus(204) })
 app.post('/api/lists', (req,res) => { const list={id:randomUUID(),title:req.body.title || 'NEW LIST',sort_order:req.body.sort_order || 0}; db.prepare('INSERT INTO custom_lists (id,title,sort_order) VALUES (@id,@title,@sort_order)').run(list); res.status(201).json(list) })
 app.patch('/api/lists/:id', (req,res) => { db.prepare('UPDATE custom_lists SET title=? WHERE id=?').run(req.body.title,req.params.id); res.json({id:req.params.id,title:req.body.title}) })
+app.delete('/api/lists/:id', (req,res) => {
+  const remove = db.transaction((id: string) => { db.prepare('DELETE FROM tasks WHERE list_id = ?').run(id); db.prepare('DELETE FROM custom_lists WHERE id = ?').run(id) })
+  remove(req.params.id)
+  res.sendStatus(204)
+})
 app.listen(3001, () => console.log('TeuxDeux API on http://localhost:3001'))

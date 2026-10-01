@@ -6,6 +6,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Task } from '../shared/types.js'
 import { nextRecurringDate } from '../shared/scheduling.js'
+import { taskForDatabase } from '../shared/database.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const db = new Database(path.join(__dirname, '../teudeux.db'))
@@ -34,22 +35,23 @@ const app = express(); app.use(cors()); app.use(express.json())
 app.get('/api/bootstrap', (_req, res) => { rollover(); res.json({ tasks: db.prepare('SELECT * FROM tasks ORDER BY sort_order').all(), lists: db.prepare('SELECT * FROM custom_lists ORDER BY sort_order').all() }) })
 app.post('/api/tasks', (req, res) => {
   const task: Task = { id: randomUUID(), text: req.body.text ?? '', date: req.body.date ?? null, list_id: req.body.list_id ?? null, sort_order: req.body.sort_order ?? 0, is_completed: false, recurring_rule: req.body.recurring_rule ?? null }
-  db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (@id,@text,@is_completed,@date,@list_id,@sort_order,@recurring_rule)').run(task)
+  db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (@id,@text,@is_completed,@date,@list_id,@sort_order,@recurring_rule)').run(taskForDatabase(task))
   res.status(201).json(task)
 })
 app.patch('/api/tasks/:id', (req, res) => {
-  const existing = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id) as Task | undefined
+  const row = db.prepare('SELECT * FROM tasks WHERE id = ?').get(req.params.id) as Task | undefined
+  const existing = row && { ...row, is_completed: Boolean(row.is_completed) }
   if (!existing) return res.sendStatus(404)
   const updated = { ...existing, ...req.body }
-  db.prepare('UPDATE tasks SET text=@text,is_completed=@is_completed,date=@date,list_id=@list_id,sort_order=@sort_order,recurring_rule=@recurring_rule WHERE id=@id').run(updated)
+  db.prepare('UPDATE tasks SET text=@text,is_completed=@is_completed,date=@date,list_id=@list_id,sort_order=@sort_order,recurring_rule=@recurring_rule WHERE id=@id').run(taskForDatabase(updated))
   if (!existing.is_completed && updated.is_completed && existing.recurring_rule && existing.date) {
     const newTask = { ...existing, id: randomUUID(), date: nextRecurringDate(existing.date, existing.recurring_rule), is_completed: false }
-    db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (@id,@text,@is_completed,@date,@list_id,@sort_order,@recurring_rule)').run(newTask)
+    db.prepare('INSERT INTO tasks (id,text,is_completed,date,list_id,sort_order,recurring_rule) VALUES (@id,@text,@is_completed,@date,@list_id,@sort_order,@recurring_rule)').run(taskForDatabase(newTask))
   }
   res.json(updated)
 })
 app.delete('/api/tasks/:id', (req,res) => { db.prepare('DELETE FROM tasks WHERE id=?').run(req.params.id); res.sendStatus(204) })
-app.put('/api/tasks/reorder', (req,res) => { const update = db.prepare('UPDATE tasks SET sort_order=@sort_order,date=@date,list_id=@list_id WHERE id=@id'); const tx = db.transaction((items: Task[]) => items.forEach(update.run)); tx(req.body); res.sendStatus(204) })
+app.put('/api/tasks/reorder', (req,res) => { const update = db.prepare('UPDATE tasks SET sort_order=@sort_order,date=@date,list_id=@list_id WHERE id=@id'); const tx = db.transaction((items: Task[]) => items.forEach(item => update.run(item))); tx(req.body); res.sendStatus(204) })
 app.post('/api/lists', (req,res) => { const list={id:randomUUID(),title:req.body.title || 'NEW LIST',sort_order:req.body.sort_order || 0}; db.prepare('INSERT INTO custom_lists (id,title,sort_order) VALUES (@id,@title,@sort_order)').run(list); res.status(201).json(list) })
 app.patch('/api/lists/:id', (req,res) => { db.prepare('UPDATE custom_lists SET title=? WHERE id=?').run(req.body.title,req.params.id); res.json({id:req.params.id,title:req.body.title}) })
 app.listen(3001, () => console.log('TeuxDeux API on http://localhost:3001'))

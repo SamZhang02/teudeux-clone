@@ -8,7 +8,7 @@
     "server": "tsx watch server/index.ts",
     "build": "tsc -b && vite build",
     "start": "tsx server/index.ts",
-    "test": "vitest run shared/scheduling.test.ts",
+    "test": "vitest run shared/*.test.ts",
     "lint": "tsc --noEmit"
   },
   "dependencies": {

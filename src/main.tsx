@@ -7,12 +7,13 @@ import type { List, Rule, Task } from '../shared/types'
 import './styles.css'
 import './dark.css'
 import './list-cards.css'
+import './markdown.css'
 
 const api = async (url: string, options?: RequestInit) => { const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options }); return response.status === 204 ? null : response.json() }
 const iso = (d: Date) => d.toLocaleDateString('en-CA')
 const weekDays = (offset: number) => { const now = new Date(); const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + offset * 7); return Array.from({ length: 7 }, (_, i) => { const date = new Date(monday); date.setDate(monday.getDate() + i); return date }) }
 const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
-function markup(text: string) { const parts = text.split(/(\*\*.*?\*\*|_.*?_)/g); return parts.map((part, i) => part.startsWith('**') ? <strong key={i}>{part.slice(2,-2)}</strong> : part.startsWith('_') ? <em key={i}>{part.slice(1,-1)}</em> : part) }
+function markup(text: string) { const parts = text.split(/(\*\*.*?\*\*|_.*?_)/g); return parts.map((part, i) => part.startsWith('**') ? <strong key={i}>{part.slice(2,-2)}</strong> : part.startsWith('_') ? <em className="markdown-italic" key={i}>{part.slice(1,-1)}</em> : part) }
 
 function TaskCard({ task, onToggle, onDelete, onEdit }: { task: Task; onToggle: (task: Task) => void; onDelete:(id:string)=>void; onEdit:(task:Task,text:string, rule:Rule)=>void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, data: { task } })

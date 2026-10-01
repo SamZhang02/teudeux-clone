@@ -80,7 +80,14 @@ app.patch('/api/tasks/:id', (req, res) => {
   db.prepare('UPDATE tasks SET text=@text,is_completed=@is_completed,date=@date,list_id=@list_id,sort_order=@sort_order,recurring_rule=@recurring_rule WHERE id=@id').run(taskForDatabase(updated))
   res.json(updated)
 })
-app.patch('/api/recurring/:id', (req,res) => { db.prepare('UPDATE recurring_tasks SET text=?, recurring_rule=? WHERE id=?').run(req.body.text, req.body.recurring_rule, req.params.id); res.sendStatus(204) })
+app.patch('/api/recurring/:id', (req,res) => {
+  const existing = db.prepare('SELECT * FROM recurring_tasks WHERE id=?').get(req.params.id) as RecurringTask | undefined
+  if (!existing) return res.sendStatus(404)
+  const text = req.body.text ?? existing.text
+  const recurringRule = req.body.recurring_rule ?? existing.recurring_rule
+  db.prepare('UPDATE recurring_tasks SET text=?, recurring_rule=? WHERE id=?').run(text, recurringRule, req.params.id)
+  res.sendStatus(204)
+})
 app.post('/api/recurring/:id/completions', (req,res) => { const { date, is_completed } = req.body; if (is_completed) db.prepare('INSERT OR IGNORE INTO recurring_completions (recurring_task_id,date) VALUES (?,?)').run(req.params.id, date); else db.prepare('DELETE FROM recurring_completions WHERE recurring_task_id=? AND date=?').run(req.params.id, date); res.sendStatus(204) })
 app.delete('/api/tasks/:id', (req,res) => { db.prepare('DELETE FROM tasks WHERE id=?').run(req.params.id); res.sendStatus(204) })
 app.put('/api/tasks/reorder', (req,res) => { const update = db.prepare('UPDATE tasks SET sort_order=@sort_order,date=@date,list_id=@list_id WHERE id=@id'); const tx = db.transaction((items: Task[]) => items.forEach(item => update.run(item))); tx(req.body); res.sendStatus(204) })

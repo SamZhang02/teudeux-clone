@@ -1,0 +1,50 @@
+import { useEffect, useMemo, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import { DndContext, DragEndEvent, DragOverlay, PointerSensor, closestCorners, useDroppable, useSensor, useSensors } from '@dnd-kit/core'
+import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import type { List, Rule, Task } from '../shared/types'
+import './styles.css'
+import './dark.css'
+import './list-cards.css'
+
+const api = async (url: string, options?: RequestInit) => { const response = await fetch(url, { headers: { 'Content-Type': 'application/json' }, ...options }); return response.status === 204 ? null : response.json() }
+const iso = (d: Date) => d.toLocaleDateString('en-CA')
+const weekDays = (offset: number) => { const now = new Date(); const monday = new Date(now); monday.setDate(now.getDate() - ((now.getDay() + 6) % 7) + offset * 7); return Array.from({ length: 7 }, (_, i) => { const date = new Date(monday); date.setDate(monday.getDate() + i); return date }) }
+const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN']
+function markup(text: string) { const parts = text.split(/(\*\*.*?\*\*|_.*?_)/g); return parts.map((part, i) => part.startsWith('**') ? <strong key={i}>{part.slice(2,-2)}</strong> : part.startsWith('_') ? <em key={i}>{part.slice(1,-1)}</em> : part) }
+
+function TaskCard({ task, onToggle, onDelete, onEdit }: { task: Task; onToggle: (task: Task) => void; onDelete:(id:string)=>void; onEdit:(task:Task,text:string, rule:Rule)=>void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id, data: { task } })
+  const [editing, setEditing] = useState(false); const [text, setText] = useState(task.text); const [rule, setRule] = useState<Rule>(task.recurring_rule)
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.25 : 1 }
+  const commit = () => { setEditing(false); if (text.trim()) onEdit(task, text.trim(), rule); else onDelete(task.id) }
+  return <div ref={setNodeRef} style={style} className={`task ${task.is_completed ? 'done' : ''}`} {...attributes}>
+    <button className="check" onClick={() => onToggle(task)} aria-label="Complete task">{task.is_completed && '✓'}</button>
+    {editing ? <div className="edit-wrap"><input autoFocus value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')commit(); if(e.key==='Escape')setEditing(false)}} onBlur={commit}/><select value={rule ?? ''} onChange={e=>setRule((e.target.value || null) as Rule)}><option value="">does not repeat</option><option value="daily">daily</option><option value="weekdays">weekdays</option><option value="weekly">weekly</option><option value="biweekly">every 2 weeks</option><option value="monthly">monthly</option><option value="yearly">yearly</option></select></div> : <button className="task-text" onDoubleClick={()=>setEditing(true)} onClick={()=>setEditing(true)}>{markup(task.text)} {task.recurring_rule && <span className="repeat">↻</span>}</button>}
+    <button className="grab" {...listeners} aria-label="Drag task">⠿</button>
+  </div>
+}
+
+function AddTask({ destination, onAdd }: { destination: {date?:string;list_id?:string}; onAdd:(text:string, destination:{date?:string;list_id?:string})=>void }) { const [text,setText]=useState(''); return <form className="add-task" onSubmit={e=>{e.preventDefault();if(text.trim()){onAdd(text.trim(),destination);setText('')}}}><span>+</span><input value={text} onChange={e=>setText(e.target.value)} placeholder="Add a task" aria-label="Add a task"/></form> }
+function TaskList({tasks, destination, onToggle, onDelete, onEdit}:{tasks:Task[];destination:{date?:string;list_id?:string};onToggle:(t:Task)=>void;onDelete:(id:string)=>void;onEdit:(t:Task,text:string,r:Rule)=>void}) { const id=destination.date||destination.list_id!; const {setNodeRef,isOver}=useDroppable({id}); return <SortableContext items={tasks.map(t=>t.id)} strategy={verticalListSortingStrategy}><div ref={setNodeRef} className={`task-list ${isOver?'is-over':''}`}>{tasks.map(t=><TaskCard key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} onEdit={onEdit}/>)}</div></SortableContext> }
+function Column({ title, label, tasks, destination, onAdd, onToggle, onDelete, onEdit, today }: {title:string;label?:string;tasks:Task[];destination:{date?:string;list_id?:string};onAdd:AddTaskProps['onAdd'];onToggle:(t:Task)=>void;onDelete:(id:string)=>void;onEdit:(t:Task,text:string,r:Rule)=>void;today?:boolean}) { return <section className={`column ${today?'is-today':''}`}><header><span>{title}</span><b>{label}</b></header><TaskList tasks={tasks} destination={destination} onToggle={onToggle} onDelete={onDelete} onEdit={onEdit}/><AddTask destination={destination} onAdd={onAdd}/></section> }
+type AddTaskProps={onAdd:(text:string,destination:{date?:string;list_id?:string})=>void}
+
+function App() {
+  const [tasks,setTasks]=useState<Task[]>([]); const [lists,setLists]=useState<List[]>([]); const [offset,setOffset]=useState(0); const [focus,setFocus]=useState(false); const [dark,setDark]=useState(()=>localStorage.getItem('teuxdeux-theme')==='dark'); const [active,setActive]=useState<Task|null>(null)
+  const days=useMemo(()=>weekDays(offset),[offset]); const today=iso(new Date())
+  useEffect(()=>{api('/api/bootstrap').then(data=>{setTasks(data.tasks);setLists(data.lists)})},[])
+  useEffect(()=>{localStorage.setItem('teuxdeux-theme',dark?'dark':'light')},[dark])
+  const persist = (next:Task[])=>{setTasks(next); api('/api/tasks/reorder',{method:'PUT',body:JSON.stringify(next.map(t=>({id:t.id,date:t.date,list_id:t.list_id,sort_order:t.sort_order})))})}
+  const add=(text:string,d:{date?:string;list_id?:string})=>api('/api/tasks',{method:'POST',body:JSON.stringify({text,date:d.date??null,list_id:d.list_id??null,sort_order:tasks.length})}).then(t=>setTasks(v=>[...v,t]))
+  const toggle=(task:Task)=>{const next=tasks.map(t=>t.id===task.id?{...t,is_completed:!t.is_completed}:t);setTasks(next);api(`/api/tasks/${task.id}`,{method:'PATCH',body:JSON.stringify({is_completed:!task.is_completed})}).then(()=>api('/api/bootstrap').then(d=>setTasks(d.tasks)))}
+  const edit=(task:Task,text:string,recurring_rule:Rule)=>{const next=tasks.map(t=>t.id===task.id?{...t,text,recurring_rule}:t);setTasks(next);api(`/api/tasks/${task.id}`,{method:'PATCH',body:JSON.stringify({text,recurring_rule})})}
+  const remove=(id:string)=>{setTasks(v=>v.filter(t=>t.id!==id));api(`/api/tasks/${id}`,{method:'DELETE'})}
+  const end=(event:DragEndEvent)=>{setActive(null);const {active,over}=event;if(!over)return;const source=tasks.find(t=>t.id===active.id); if(!source)return;const target=tasks.find(t=>t.id===over.id); const container=(target?.date || target?.list_id || String(over.id)) as string; if(!container)return;const isDate=/^\d{4}-\d{2}-\d{2}$/.test(container);let next=[...tasks];const sourceIndex=next.findIndex(t=>t.id===source.id);next.splice(sourceIndex,1); const insertAt=target ? next.findIndex(t=>t.id===target.id) : next.length;next.splice(insertAt<0?next.length:insertAt,0,{...source,date:isDate?container:null,list_id:isDate?null:container});const relevant=next.filter(t=>(isDate?t.date===container:t.list_id===container)).map((t,i)=>({...t,sort_order:i}));next=next.map(t=>relevant.find(x=>x.id===t.id)||t);persist(next)}
+  const addList=()=>api('/api/lists',{method:'POST',body:JSON.stringify({title:'NEW LIST',sort_order:lists.length})}).then(l=>setLists(v=>[...v,l]))
+  const rename=(list:List)=>{const title=window.prompt('List name',list.title);if(title?.trim()){setLists(v=>v.map(l=>l.id===list.id?{...l,title:title.trim()}:l));api(`/api/lists/${list.id}`,{method:'PATCH',body:JSON.stringify({title:title.trim()})})}}
+  const tasksFor=(date?:string,list?:string)=>tasks.filter(t=>date?t.date===date:t.list_id===list).sort((a,b)=>a.sort_order-b.sort_order)
+  return <main className={dark?'dark':''}><header className="topbar"><div className="brand">teux<span>deux</span><i>✦</i></div><div className="week-nav"><button onClick={()=>setOffset(o=>o-1)}>←</button><button className="today-button" onClick={()=>setOffset(0)}>TODAY</button><button onClick={()=>setOffset(o=>o+1)}>→</button></div><div className="actions"><button className={focus?'active':''} onClick={()=>setFocus(!focus)}>◉ FOCUS</button><button aria-label="Toggle dark mode" onClick={()=>setDark(value=>!value)}>{dark?'☀':'☾'}</button></div></header><div className={focus?'planner focus-view':'planner'}><div className="week-label">{days[0].toLocaleDateString('en-US',{month:'long',day:'numeric'})} — {days[6].toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div><DndContext sensors={useSensors(useSensor(PointerSensor,{activationConstraint:{distance:5}}))} collisionDetection={closestCorners} onDragStart={e=>setActive(tasks.find(t=>t.id===e.active.id)||null)} onDragEnd={end}><div className="week-grid">{days.map((day,i)=><Column key={iso(day)} title={dayNames[i]} label={String(day.getDate()).padStart(2,'0')} today={iso(day)===today} tasks={tasksFor(iso(day))} destination={{date:iso(day)}} onAdd={add} onToggle={toggle} onDelete={remove} onEdit={edit}/>)}</div><section className="someday"><div className="someday-title"><span>SOMEDAY</span><small>Everything has its time.</small></div><div className="list-grid">{lists.map(list=><div className="bucket" key={list.id}><button className="list-name" onClick={()=>rename(list)}>{list.title} <small>✎</small></button><TaskList tasks={tasksFor(undefined,list.id)} destination={{list_id:list.id}} onToggle={toggle} onDelete={remove} onEdit={edit}/><AddTask destination={{list_id:list.id}} onAdd={add}/></div>)}<button className="new-list" onClick={addList}>+ NEW LIST</button></div></section><DragOverlay>{active&&<div className="task overlay">{active.text}</div>}</DragOverlay></DndContext></div><footer><span>Double-click a task to edit it. Use <b>**bold**</b> and <i>_italics_</i>.</span><span>made for calm, purposeful days</span></footer></main>
+}
+createRoot(document.getElementById('root')!).render(<App />)
